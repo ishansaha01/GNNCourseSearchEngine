@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Course Recommender</title>
+    <title>Princeton Engineering Course Recommender</title>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
@@ -11,32 +11,116 @@
         #mynetwork {
             width: 100%;
             height: 600px;
-            border: 1px solid lightgray;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.5rem;
         }
     </style>
 </head>
 <body class="bg-gray-100 p-8">
-    <div class="max-w-6xl mx-auto bg-white p-8 rounded shadow">
-        <h1 class="text-2xl font-bold mb-4">Course Recommender</h1>
-        <div class="grid grid-cols-3 gap-4">
-            <div>
-                <label for="course-select" class="block mb-2">Select courses you're interested in:</label>
-                <select id="course-select" multiple class="w-full p-2 border rounded" size="20">
-                    {% for course in courses %}
-                        <option value="{{ course }}">{{ course }}</option>
-                    {% endfor %}
-                </select>
-                <button id="recommend-btn" class="mt-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Get Recommendations</button>
+    <div class="max-w-7xl mx-auto bg-white p-8 rounded-lg shadow-lg">
+        <header class="mb-8">
+            <h1 class="text-4xl font-bold text-orange-600 mb-2">Princeton Engineering Course Recommendation System</h1>
+            <p class="text-gray-600 text-lg">
+                Utilizing an unsupervised random-walk model to provide personalized course recommendations with Graph Neural Networks.
+            </p>
+        </header>
+        
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div class="lg:col-span-1">
+                <div class="bg-gray-50 p-6 rounded-lg shadow">
+                    <label for="course-search" class="block text-lg font-semibold mb-2 text-gray-700">Search for courses:</label>
+                    <input type="text" id="course-search" class="w-full p-2 border rounded-md bg-white shadow-sm mb-4" placeholder="Enter course code or name">
+                    <div id="search-results" class="mb-4 max-h-40 overflow-y-auto"></div>
+                    <label for="selected-courses" class="block text-lg font-semibold mb-2 text-gray-700">Selected courses:</label>
+                    <select id="selected-courses" multiple class="w-full p-2 border rounded-md bg-white shadow-sm" size="10"></select>
+                    <button id="recommend-btn" class="mt-6 w-full bg-orange-500 text-white px-6 py-3 rounded-md hover:bg-orange-600 transition duration-300 ease-in-out transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-opacity-50">
+                        Get Recommendations
+                    </button>
+                </div>
+                <div class="mt-8 bg-gray-50 p-6 rounded-lg shadow">
+                    <label for="department-select" class="block text-lg font-semibold mb-2 text-gray-700">Select Department:</label>
+                    <select id="department-select" class="w-full p-2 border rounded-md bg-white shadow-sm">
+                        <option value="ALL">All Departments</option>
+                        <!-- Other department options will be added here dynamically -->
+                    </select>
+                </div>
             </div>
-            <div class="col-span-2" id="mynetwork"></div>
+            <div class="lg:col-span-2">
+                <div id="mynetwork" class="shadow-lg"></div>
+            </div>
         </div>
-        <div id="recommendations" class="mt-8"></div>
+        
+        <div id="recommendations" class="mt-12 bg-gray-50 p-6 rounded-lg shadow">
+            <h2 class="text-2xl font-bold mb-4 text-gray-800">Recommendations</h2>
+            <p class="text-gray-600">Select courses and click "Get Recommendations" to see suggestions.</p>
+        </div>
+
+        <!-- Footnotes -->
+        <footer class="mt-12 pt-8 border-t border-gray-200">
+            <div class="text-sm text-gray-600">
+                <p>We utilize Node2Vec to develop continuous relationships of graph data structures.</p>
+                <p>Creator: Ishan Saha, ECE @ Princeton University</p>
+                <p>TigerApp 2024</p>
+            </div>
+        </footer>
     </div>
 
     <script>
         const colorMap = {{ color_map|tojson }};
         let network;
         let graphData;
+        let activeDepartment = "ALL";
+        const allCourses = {{ courses|tojson }};
+
+        function populateDepartmentDropdown() {
+            const select = document.getElementById('department-select');
+            Object.keys(colorMap).forEach(dept => {
+                const option = document.createElement('option');
+                option.value = dept;
+                option.textContent = dept;
+                select.appendChild(option);
+            });
+        }
+
+        document.getElementById('department-select').addEventListener('change', function(e) {
+            activeDepartment = e.target.value;
+            updateGraph();
+        });
+
+        function searchCourses(query) {
+            query = query.toLowerCase();
+            return allCourses.filter(course => course.toLowerCase().includes(query));
+        }
+
+        document.getElementById('course-search').addEventListener('input', function(e) {
+            const query = e.target.value;
+            const results = searchCourses(query);
+            const resultsContainer = document.getElementById('search-results');
+            resultsContainer.innerHTML = '';
+            results.forEach(course => {
+                const div = document.createElement('div');
+                div.textContent = course;
+                div.className = 'p-2 hover:bg-gray-200 cursor-pointer';
+                div.onclick = () => addSelectedCourse(course);
+                resultsContainer.appendChild(div);
+            });
+        });
+
+        function addSelectedCourse(course) {
+            const selectedCourses = document.getElementById('selected-courses');
+            if (![...selectedCourses.options].some(option => option.value === course)) {
+                const option = new Option(course, course);
+                selectedCourses.add(option);
+            }
+            updateGraph();
+        }
+
+        document.getElementById('selected-courses').addEventListener('dblclick', function(e) {
+            if (e.target.tagName === 'OPTION') {
+                e.target.remove();
+                updateGraph();
+            }
+        });
 
         // Load graph data and initialize the network
         axios.get('/graph_data')
@@ -48,11 +132,13 @@
                         shape: 'dot',
                         size: 10,
                         font: {
-                            size: 12
+                            size: 12,
+                            color: '#333'
                         }
                     },
                     edges: {
-                        width: 0.5
+                        width: 0.5,
+                        color: { color: '#999999' }
                     },
                     physics: {
                         stabilization: false,
@@ -67,29 +153,27 @@
                     }
                 };
                 network = new vis.Network(container, graphData, options);
+                populateDepartmentDropdown();
             })
             .catch(function (error) {
                 console.error('Error loading graph data:', error);
             });
 
-        document.getElementById('course-select').addEventListener('change', function() {
-            updateGraph();
-        });
-
         function updateGraph(recommendedCourses = []) {
-            const selectedCourses = Array.from(document.getElementById('course-select').selectedOptions).map(option => option.value);
+            const selectedCourses = Array.from(document.getElementById('selected-courses').options).map(option => option.value);
             const isRecommendationComplete = recommendedCourses.length > 0;
             
             if (network && graphData) {
                 const updatedNodes = graphData.nodes.map(node => {
+                    const dept = node.id.substr(0, 3);
                     if (selectedCourses.includes(node.id)) {
                         return { ...node, color: '#000000', size: 25 };  // Black and larger for selected courses
                     } else if (recommendedCourses.includes(node.id)) {
                         return { ...node, color: '#00ff00', size: 25 };  // Green and larger for recommended courses
-                    } else if (isRecommendationComplete) {
-                        return { ...node, color: '#cccccc', size: 5 };  // Gray and smaller for other courses after recommendation
+                    } else if (activeDepartment !== "ALL" && dept !== activeDepartment) {
+                        return { ...node, color: '#cccccc', size: 5 };  // Gray and smaller for inactive departments
                     } else {
-                        return { ...node, color: colorMap[node.id.substr(0, 3)], size: 10 };  // Default color and size
+                        return { ...node, color: colorMap[dept], size: 10 };  // Default color and size for active departments
                     }
                 });
                 network.setData({ nodes: updatedNodes, edges: graphData.edges });
@@ -97,7 +181,7 @@
         }
 
         document.getElementById('recommend-btn').addEventListener('click', function() {
-            const selectedCourses = Array.from(document.getElementById('course-select').selectedOptions).map(option => option.value);
+            const selectedCourses = Array.from(document.getElementById('selected-courses').options).map(option => option.value);
             
             if (selectedCourses.length === 0) {
                 alert("Please select at least one course.");
@@ -109,16 +193,16 @@
             })
             .then(function (response) {
                 const recommendationsDiv = document.getElementById('recommendations');
-                recommendationsDiv.innerHTML = '<h2 class="text-xl font-bold mb-4">Recommendations:</h2>';
+                recommendationsDiv.innerHTML = '<h2 class="text-2xl font-bold mb-4 text-gray-800">Recommendations</h2>';
                 
                 if (response.data.length === 0) {
-                    recommendationsDiv.innerHTML += '<p>No recommendations found for the selected courses.</p>';
+                    recommendationsDiv.innerHTML += '<p class="text-gray-600">No recommendations found for the selected courses.</p>';
                 } else {
                     response.data.forEach(function(rec) {
                         const recHtml = `
-                            <div class="mb-4 p-4 border rounded">
-                                <h3 class="font-bold">${rec.course} (Similarity: ${rec.similarity})</h3>
-                                <p><strong>Related Courses:</strong> ${rec.related_courses.join(', ') || 'None'}</p>
+                            <div class="mb-4 p-4 bg-white border border-gray-200 rounded-lg">
+                                <h3 class="font-bold text-lg text-orange-600">${rec.course} <span class="text-gray-600 text-sm">(Similarity: ${rec.similarity})</span></h3>
+                                <p class="mt-2"><strong class="text-gray-700">Related Courses:</strong> <span class="text-gray-600">${rec.related_courses.join(', ') || 'None'}</span></p>
                             </div>
                         `;
                         recommendationsDiv.innerHTML += recHtml;
