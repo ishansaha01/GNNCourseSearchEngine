@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Course Recommender</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style type="text/css">
+        #mynetwork {
+            width: 100%;
+            height: 600px;
+            border: 1px solid lightgray;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-6xl mx-auto bg-white p-8 rounded shadow">
+        <h1 class="text-2xl font-bold mb-4">Course Recommender</h1>
+        <div class="grid grid-cols-3 gap-4">
+            <div>
+                <label for="course-select" class="block mb-2">Select courses you're interested in:</label>
+                <select id="course-select" multiple class="w-full p-2 border rounded" size="20">
+                    {% for course in courses %}
+                        <option value="{{ course }}">{{ course }}</option>
+                    {% endfor %}
+                </select>
+                <button id="recommend-btn" class="mt-4 bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Get Recommendations</button>
+            </div>
+            <div class="col-span-2" id="mynetwork"></div>
+        </div>
+        <div id="recommendations" class="mt-8"></div>
+    </div>
+
+    <script>
+        const colorMap = {{ color_map|tojson }};
+        let network;
+        let graphData;
+
+        // Load graph data and initialize the network
+        axios.get('/graph_data')
+            .then(function (response) {
+                graphData = response.data;
+                const container = document.getElementById('mynetwork');
+                const options = {
+                    nodes: {
+                        shape: 'dot',
+                        size: 10,
+                        font: {
+                            size: 12
+                        }
+                    },
+                    edges: {
+                        width: 0.5
+                    },
+                    physics: {
+                        stabilization: false,
+                        barnesHut: {
+                            gravitationalConstant: -2000,
+                            centralGravity: 0.3,
+                            springLength: 95,
+                            springConstant: 0.04,
+                            damping: 0.09,
+                            avoidOverlap: 0.1
+                        }
+                    }
+                };
+                network = new vis.Network(container, graphData, options);
+            })
+            .catch(function (error) {
+                console.error('Error loading graph data:', error);
+            });
+
+        document.getElementById('course-select').addEventListener('change', function() {
+            updateGraph();
+        });
+
+        function updateGraph(recommendedCourses = []) {
+            const selectedCourses = Array.from(document.getElementById('course-select').selectedOptions).map(option => option.value);
+            const isRecommendationComplete = recommendedCourses.length > 0;
+            
+            if (network && graphData) {
+                const updatedNodes = graphData.nodes.map(node => {
+                    if (selectedCourses.includes(node.id)) {
+                        return { ...node, color: '#000000', size: 25 };  // Black and larger for selected courses
+                    } else if (recommendedCourses.includes(node.id)) {
+                        return { ...node, color: '#00ff00', size: 25 };  // Green and larger for recommended courses
+                    } else if (isRecommendationComplete) {
+                        return { ...node, color: '#cccccc', size: 5 };  // Gray and smaller for other courses after recommendation
+                    } else {
+                        return { ...node, color: colorMap[node.id.substr(0, 3)], size: 10 };  // Default color and size
+                    }
+                });
+                network.setData({ nodes: updatedNodes, edges: graphData.edges });
+            }
+        }
+
+        document.getElementById('recommend-btn').addEventListener('click', function() {
+            const selectedCourses = Array.from(document.getElementById('course-select').selectedOptions).map(option => option.value);
+            
+            if (selectedCourses.length === 0) {
+                alert("Please select at least one course.");
+                return;
+            }
+
+            axios.post('/recommend', {
+                courses: selectedCourses
+            })
+            .then(function (response) {
+                const recommendationsDiv = document.getElementById('recommendations');
+                recommendationsDiv.innerHTML = '<h2 class="text-xl font-bold mb-4">Recommendations:</h2>';
+                
+                if (response.data.length === 0) {
+                    recommendationsDiv.innerHTML += '<p>No recommendations found for the selected courses.</p>';
+                } else {
+                    response.data.forEach(function(rec) {
+                        const recHtml = `
+                            <div class="mb-4 p-4 border rounded">
+                                <h3 class="font-bold">${rec.course} (Similarity: ${rec.similarity})</h3>
+                                <p><strong>Related Courses:</strong> ${rec.related_courses.join(', ') || 'None'}</p>
+                            </div>
+                        `;
+                        recommendationsDiv.innerHTML += recHtml;
+                    });
+                }
+
+                // Update graph colors and sizes for recommended courses
+                const recommendedCourses = response.data.map(rec => rec.course);
+                updateGraph(recommendedCourses);
+            })
+            .catch(function (error) {
+                console.error('Error:', error);
+                alert('An error occurred while fetching recommendations. Please try again.');
+            });
+        });
+    </script>
+</body>
+</html>
